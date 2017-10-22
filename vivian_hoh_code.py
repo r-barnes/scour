@@ -22,7 +22,7 @@ from scipy.spatial import ConvexHull
 # seddat    = seddat[:,1:]
 
 class ScourInator:
-  def __init__(self, sedfile, treefile):
+  def __init__(self, sedfile, treefile, step_size=0.1):
     seddat          = pd.read_table(sedfile,    names=['flag','x','y','z'])
     seddat['type']  = 'sed'
     treedat         = pd.read_table(treefile, names=['flag','x','y','z'])
@@ -47,6 +47,7 @@ class ScourInator:
     self.roi_path   = None
     self.use_roi    = True
     self.roi_points = None
+    self.step_size  = step_size
 
     #Separate out the sediment data
     self.sed_data     = self.dat.loc[self.dat['type'] == 'sed'].copy()
@@ -70,7 +71,7 @@ class ScourInator:
     self.treepath = Path(verts, codes)                       #Create a path
 
     #Generate plotting grid with 100 steps along both axes
-    self.grid_x, self.grid_y = np.mgrid[gxmin:gxmax+1e-6:0.1, gymin:gymax+1e-6:0.1]
+    self.grid_x, self.grid_y = np.mgrid[gxmin:gxmax+1e-6:self.step_size, gymin:gymax+1e-6:self.step_size]
 
   def useROI(self, use_roi):
     self.use_roi = use_roi
@@ -106,7 +107,7 @@ class ScourInator:
       return allpts, []
     else:
       included = allpts[allpts[:,2]>=zcutoff,:]
-      # included = np.concatenate((included,hull), axis=0)
+      included = np.concatenate((included,hull), axis=0)
       excluded = allpts[allpts[:,2]< zcutoff,:]
       return included, excluded
 
@@ -130,9 +131,11 @@ class ScourInator:
   def explore(self, zcutoff=None):
     fig = plt.figure()  #New figure
 
+    inc, ex = self.getPoints(zcutoff)
+
     this_surf = self.getSedSurface(zcutoff=zcutoff)
 
-    outer_grid = gridspec.GridSpec(6, 6, wspace=0, hspace=0.15, left=0, right=1, top=1, bottom=0)
+    outer_grid = gridspec.GridSpec(6, 6, wspace=0, hspace=0.15, left=0.05, right=1, top=1, bottom=0)
 
     #Plot the interpolated sediment surface
     ax1 = plt.Subplot(fig, outer_grid[0:3,0:2])
@@ -168,7 +171,11 @@ class ScourInator:
       ax.set_title('cutoff = {0:.2}'.format(zcutoff))
       ax.axis('off')
       fig.add_subplot(ax)
-      surf    = self.getSedSurface(zcutoff=zcutoff)
+      try:
+        surf    = self.getSedSurface(zcutoff=zcutoff)
+      except:
+        print("Failed to get a surface: no bounding points at this zcutoff level!")
+        continue
       surfimg = self.plotSurface(ax, surf)
       surfimg.set_clim(self.zmin,self.zmax)
 
@@ -188,7 +195,7 @@ class ScourInator:
 
     inc, ex = self.getPoints(zcutoff)
 
-    outer_grid = gridspec.GridSpec(3, 2, wspace=0.1, hspace=0.2, left=0.05, right=0.95, top=0.95, bottom=0.05)
+    outer_grid = gridspec.GridSpec(2, 2, wspace=0.1, hspace=0.3, left=0.05, right=0.95, top=0.95, bottom=0.05)
 
     #Plot the interpolated sediment surface
     ax1 = plt.Subplot(fig, outer_grid[0,0])
@@ -248,8 +255,8 @@ class ScourInator:
     surf.set_clim(self.zmin,self.zmax)
 
     #Add the tree to the picture
-    patch = patches.PathPatch(self.treepath, facecolor='#FFA400', lw=1) #Create a patch from the path
-    ax3.add_patch(patch)                                                #Draw the patch
+    patch = patches.PathPatch(self.treepath, facecolor='none', ec='black', lw=1) #Create a patch from the path
+    ax3.add_patch(patch)                                                         #Draw the patch
 
     #Plot sediment points we interpolated from
     ax3.plot(inc[:,0], inc[:,1], 'k.', ms=3)    
@@ -262,11 +269,12 @@ class ScourInator:
 
     #Plot difference surface
     ax4 = plt.Subplot(fig, outer_grid[1,1])
-    ax4.set_title('Difference')
     fig.add_subplot(ax4)
     diffsurf = np.abs(this_surf_zcut-this_surf)
     diffsurf[diffsurf<0.001] = np.nan
     surf = self.plotSurface(ax4,diffsurf)
+    diffvol = np.nansum((self.step_size**2)*diffsurf)
+    ax4.set_title('Difference {0:.3} m³'.format(diffvol))
     #surf.set_clim(self.zmin,self.zmax)
 
     #Add the tree to the picture
@@ -291,7 +299,11 @@ class ScourInator:
     orig_surf = self.getSedSurface()
     for i in range(count):
       zcutoff = self.zmin+i*self.zran/(count-1)
-      cursurf = self.getSedSurface(zcutoff=zcutoff)
+      try:
+        cursurf = self.getSedSurface(zcutoff=zcutoff)
+      except:
+        print("Failed to find points at zcutoff={0}".format(zcutoff))
+        continue
       diff    = cursurf-orig_surf
       vals.append((zcutoff,np.nansum(diff)))
 
@@ -315,7 +327,7 @@ treefile = sys.argv[2]
 si = ScourInator(sedfile, treefile)
 
 si.getROI()
-si.showCutout(-0.1)
+#si.showCutout(-0.1)
 #si.explore()
 
 #si.plotAll(-0.5)
